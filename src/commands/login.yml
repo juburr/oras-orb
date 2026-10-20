@@ -1,0 +1,39 @@
+description: >
+  Logs in to an OCI registry with oras login. ORAS stores the credentials
+  where Docker does, in ~/.docker/config.json or the credential helper it
+  names, so the orb's other commands and later oras or docker commands can
+  use them. Run logout when the job no longer needs them.
+parameters:
+  registry:
+    type: string
+    description: >
+      Registry host to log in to, with an optional port, such as ghcr.io or
+      localhost:5000. Environment variables are expanded.
+  username:
+    type: env_var_name
+    default: REGISTRY_USERNAME
+    description: >
+      Name of the environment variable holding the username. When that
+      variable is empty, ORAS uses the password as an identity token.
+  password:
+    type: env_var_name
+    default: REGISTRY_PASSWORD
+    description: >
+      Name of the environment variable holding the password or token. It
+      reaches oras on stdin, never on its command line.
+  plain_http:
+    type: boolean
+    default: false
+    description: >
+      Connect over plain HTTP instead of HTTPS, for a registry without TLS
+      such as a local test registry.
+steps:
+  - run:
+      name: ORAS Login
+      environment:
+        PARAM_PASSWORD: << parameters.password >>
+        PARAM_PLAIN_HTTP: << parameters.plain_http >>
+        PARAM_REGISTRY: << parameters.registry >>
+        PARAM_USERNAME: << parameters.username >>
+        SCRIPT_ORAS_LIB: << include(scripts/lib/oras.sh) >>
+      command: << include(scripts/login.sh) >>

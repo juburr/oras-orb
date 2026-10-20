@@ -1,0 +1,55 @@
+description: >
+  Push a build's reports to a registry as an OCI artifact in one job, and pull
+  them into another. Credentials come from the REGISTRY_USERNAME and
+  REGISTRY_PASSWORD environment variables, for example in a context.
+
+usage:
+  version: 2.1
+  orbs:
+    oras: juburr/oras-orb@0.1.0
+  jobs:
+    publish-reports:
+      docker:
+        - image: cimg/base:current-22.04
+      steps:
+        - checkout
+        - run:
+            name: Build Reports
+            command: mkdir -p reports && echo "all tests passed" > reports/tests.txt
+        - oras/install:
+            version: "1.3.5"
+        - oras/login:
+            registry: ghcr.io
+        - oras/push:
+            reference: ghcr.io/myorg/myapp-reports:${CIRCLE_SHA1}
+            files: reports/tests.txt
+            artifact_type: application/vnd.myorg.reports.v1
+            annotations: |
+              org.opencontainers.image.revision=${CIRCLE_SHA1}
+        - oras/logout:
+            registry: ghcr.io
+    review-reports:
+      docker:
+        - image: cimg/base:current-22.04
+      steps:
+        - oras/install:
+            version: "1.3.5"
+        - oras/login:
+            registry: ghcr.io
+        - oras/pull:
+            reference: ghcr.io/myorg/myapp-reports:${CIRCLE_SHA1}
+            output_dir: pulled
+        - oras/logout:
+            registry: ghcr.io
+        - run:
+            name: Show Reports
+            command: cat pulled/reports/tests.txt
+  workflows:
+    reports:
+      jobs:
+        - publish-reports:
+            context: registry-credentials
+        - review-reports:
+            context: registry-credentials
+            requires:
+              - publish-reports

@@ -1,0 +1,16 @@
+description: >
+  Logs out of an OCI registry with oras logout, removing the credentials that
+  login stored. Logging out of a registry the job isn't logged in to
+  succeeds.
+parameters:
+  registry:
+    type: string
+    description: >
+      Registry host to log out of: the same value login took.
+steps:
+  - run:
+      name: ORAS Logout
+      environment:
+        PARAM_REGISTRY: << parameters.registry >>
+        SCRIPT_ORAS_LIB: << include(scripts/lib/oras.sh) >>
+      command: << include(scripts/logout.sh) >>

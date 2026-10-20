@@ -1,0 +1,69 @@
+description: >
+  Attaches files, such as an SBOM, a scan report or a signature, to an image
+  or artifact already in a registry with oras attach, and exports the digest
+  of the manifest it pushed. The new artifact names the original as its
+  subject, so the registry lists it among the original's referrers, where
+  oras discover finds it. Log in to the registry first.
+parameters:
+  subject:
+    type: string
+    description: >
+      Image or artifact to attach to: <registry>/<repository>@<digest>, or
+      :<tag> in place of @<digest>. A digest attaches to exactly what was
+      pushed, such as the digest the push command exports. Environment
+      variables are expanded.
+  artifact_type:
+    type: string
+    description: >
+      The attached artifact's type, a media type such as
+      application/spdx+json, which oras discover can filter on.
+  files:
+    type: string
+    default: ""
+    description: >
+      Files to attach, relative to working_dir and separated by spaces or
+      newlines. Quote a path that has spaces. Add :<media type> to a file to
+      set its media type. Attach needs files, annotations or both.
+  annotations:
+    type: string
+    default: ""
+    description: >
+      Annotations for the attached artifact's manifest, one key=value per
+      line.
+  working_dir:
+    type: string
+    default: "."
+    description: >
+      Directory that files are relative to.
+  plain_http:
+    type: boolean
+    default: false
+    description: >
+      Connect over plain HTTP instead of HTTPS, for a registry without TLS
+      such as a local test registry.
+  extra_args:
+    type: string
+    default: ""
+    description: >
+      More arguments for oras attach, split like shell words. Nothing in them
+      is run as shell code.
+  digest_env_var:
+    type: env_var_name
+    default: ORAS_ATTACHED_DIGEST
+    description: >
+      Name of the environment variable to set, for later steps, to the
+      digest of the attached artifact's manifest.
+steps:
+  - run:
+      name: ORAS Attach
+      environment:
+        PARAM_ANNOTATIONS: << parameters.annotations >>
+        PARAM_ARTIFACT_TYPE: << parameters.artifact_type >>
+        PARAM_DIGEST_ENV_VAR: << parameters.digest_env_var >>
+        PARAM_EXTRA_ARGS: << parameters.extra_args >>
+        PARAM_FILES: << parameters.files >>
+        PARAM_PLAIN_HTTP: << parameters.plain_http >>
+        PARAM_SUBJECT: << parameters.subject >>
+        PARAM_WORKING_DIR: << parameters.working_dir >>
+        SCRIPT_ORAS_LIB: << include(scripts/lib/oras.sh) >>
+      command: << include(scripts/attach.sh) >>
