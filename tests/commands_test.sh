@@ -86,7 +86,7 @@ run() {
         TMPDIR="${WORK}/tmp" \
         BASH_ENV="${WORK}/bash_env" \
         "${DEFAULTS[@]}" \
-        "$@" \
+        ${@+"$@"} \
         bash "${SCRIPTS}/${script}" 2>&1)
     RC=$?
 }
@@ -137,7 +137,7 @@ DEFAULTS=(PARAM_REFERENCE="registry.example/myorg/reports:1.0.0" PARAM_FILES="re
 run push.sh
 check "push succeeds" rc_is_zero
 check "push passes no optional flags by default" \
-    args_are push --export-manifest MANIFEST "registry.example/myorg/reports:1.0.0" report.txt
+    args_are push --export-manifest MANIFEST -- "registry.example/myorg/reports:1.0.0" report.txt
 check "push runs oras in the working directory" cwd_is "${WORK}/job"
 check "push exports the manifest digest" exported ORAS_PUSHED_DIGEST "${MANIFEST_DIGEST}"
 check "push removes the exported manifest" tmp_is_empty
@@ -152,7 +152,7 @@ check "push passes each option, file and annotation as its own argument" \
     args_are push --export-manifest MANIFEST --artifact-type application/vnd.example.report.v1 --plain-http \
     --annotation "org.opencontainers.image.description=Nightly, full scan" --annotation "com.example.id=a=b" \
     --concurrency 10 --header "X-Note: two words" \
-    "registry.example/myorg/reports:1.0.0" report.txt "two words.txt" "sbom file.json:application/spdx+json"
+    -- "registry.example/myorg/reports:1.0.0" report.txt "two words.txt" "sbom file.json:application/spdx+json"
 check "push exports to the variable digest_env_var names" exported REPORT_DIGEST "${MANIFEST_DIGEST}"
 
 run push.sh PARAM_WORKING_DIR="out dir"
@@ -215,7 +215,7 @@ run attach.sh
 check "attach succeeds" rc_is_zero
 check "attach passes only the artifact type and manifest flags by default" \
     args_are attach --artifact-type application/spdx+json --export-manifest MANIFEST \
-    "registry.example/myorg/app@${MANIFEST_DIGEST}" sbom.json
+    -- "registry.example/myorg/app@${MANIFEST_DIGEST}" sbom.json
 check "attach exports the manifest digest" exported ORAS_ATTACHED_DIGEST "${MANIFEST_DIGEST}"
 check "attach removes the exported manifest" tmp_is_empty
 
@@ -223,7 +223,7 @@ run attach.sh PARAM_FILES="" PARAM_ANNOTATIONS="com.example.reviewed=true" PARAM
 check "attach accepts annotations without files" rc_is_zero
 check "attach passes no file argument without files" \
     args_are attach --artifact-type application/spdx+json --export-manifest MANIFEST --plain-http \
-    --annotation com.example.reviewed=true "registry.example/myorg/app@${MANIFEST_DIGEST}"
+    --annotation com.example.reviewed=true -- "registry.example/myorg/app@${MANIFEST_DIGEST}"
 
 run attach.sh PARAM_FILES="" PARAM_ANNOTATIONS=""
 check "attach requires files or annotations" rc_is_nonzero
@@ -248,12 +248,12 @@ DEFAULTS=(PARAM_REFERENCE="registry.example/myorg/reports:1.0.0" PARAM_OUTPUT_DI
 run pull.sh
 check "pull succeeds" rc_is_zero
 check "pull passes no optional flags by default" \
-    args_are pull --output . "registry.example/myorg/reports:1.0.0"
+    args_are pull --output . -- "registry.example/myorg/reports:1.0.0"
 
 run pull.sh PARAM_OUTPUT_DIR="pulled/new dir" PARAM_PLAIN_HTTP="1" PARAM_EXTRA_ARGS="--keep-old-files"
 check "pull with every option succeeds" rc_is_zero
 check "pull passes each option" \
-    args_are pull --output "pulled/new dir" --plain-http --keep-old-files "registry.example/myorg/reports:1.0.0"
+    args_are pull --output "pulled/new dir" --plain-http --keep-old-files -- "registry.example/myorg/reports:1.0.0"
 check "pull creates output_dir" test -d "${WORK}/job/pulled/new dir"
 
 run pull.sh PARAM_REFERENCE=""
@@ -268,7 +268,7 @@ DEFAULTS=(PARAM_REGISTRY="registry.example:5000")
 
 run logout.sh
 check "logout succeeds" rc_is_zero
-check "logout runs oras logout for the registry" args_are logout "registry.example:5000"
+check "logout runs oras logout for the registry" args_are logout -- "registry.example:5000"
 
 run logout.sh PARAM_REGISTRY=""
 check "logout requires a registry" rc_is_nonzero

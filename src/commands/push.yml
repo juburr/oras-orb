@@ -13,10 +13,12 @@ parameters:
   files:
     type: string
     description: >
-      Files to push, relative to working_dir and separated by spaces or
-      newlines. Quote a path that has spaces. Add :<media type> to a file to
-      set its media type, such as sbom.json:application/spdx+json. ORAS
-      stores each file under the path given here, and pull recreates it.
+      Files or directories to push, relative to working_dir and separated by
+      spaces or newlines. Quote a path that has spaces; wildcards are not
+      expanded. Add :<media type> to a file to set its media type, such as
+      sbom.json:application/spdx+json. ORAS stores each file under the path
+      given here, and pull recreates it, so keep paths inside working_dir:
+      pull refuses a path with .. that would leave its output directory.
   artifact_type:
     type: string
     default: ""

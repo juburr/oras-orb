@@ -171,7 +171,7 @@ If [container-ops-orb](https://github.com/juburr/container-ops-orb) publishes yo
 
 ### Push Several Files, With Media Types and Annotations
 
-`files` splits like shell words, so put each file on its own line, quote a path that has spaces, and add `:<media type>` to set one. `annotations` takes one `key=value` per line, so values can contain commas and spaces:
+`files` splits like shell words, so put each file on its own line, quote a path that has spaces, and add `:<media type>` to set one. Wildcards are not expanded, so list each file, or push a directory. `annotations` takes one `key=value` per line, so values can contain commas and spaces:
 
 ```yaml
 - oras/push:
@@ -247,7 +247,7 @@ Pushes files to a registry as an OCI artifact with `oras push`, and exports the 
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `reference` | *required* | Where to push: `<registry>/<repository>:<tag>`, such as `ghcr.io/my-org/reports:1.0.0`. Several tags can be pushed at once as `<tag>,<tag>`. |
-| `files` | *required* | Files to push, relative to `working_dir` and separated by spaces or newlines. Quote a path that has spaces. Add `:<media type>` to a file to set its media type. ORAS stores each file under the path given here, and `pull` recreates it. |
+| `files` | *required* | Files or directories to push, relative to `working_dir` and separated by spaces or newlines. Quote a path that has spaces; wildcards are not expanded. Add `:<media type>` to a file to set its media type. ORAS stores each file under the path given here, and `pull` recreates it, so keep paths inside `working_dir`: `pull` refuses a path with `..` that would leave its output directory. |
 | `artifact_type` | *(empty)* | The artifact's type, a media type such as `application/vnd.example.report.v1`. ORAS sets its own when this is empty. |
 | `annotations` | *(empty)* | Annotations for the artifact's manifest, one `key=value` per line. |
 | `working_dir` | `.` | Directory that `files` are relative to. |

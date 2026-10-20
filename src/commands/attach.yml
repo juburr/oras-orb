@@ -22,8 +22,9 @@ parameters:
     default: ""
     description: >
       Files to attach, relative to working_dir and separated by spaces or
-      newlines. Quote a path that has spaces. Add :<media type> to a file to
-      set its media type. Attach needs files, annotations or both.
+      newlines, as push takes them: quote a path that has spaces, wildcards
+      are not expanded, and :<media type> sets a file's media type. Attach
+      needs files, annotations or both.
   annotations:
     type: string
     default: ""

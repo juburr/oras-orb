@@ -20,4 +20,4 @@ fi
 oras_require
 
 echo "Logging out of ${REGISTRY} with ORAS..."
-oras logout "${REGISTRY}"
+oras logout -- "${REGISTRY}"

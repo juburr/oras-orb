@@ -58,7 +58,8 @@ fi
 # unset under set -u, so they are expanded only when they have elements.
 ATTACH_ARGS+=(${ORAS_ANNOTATION_ARGS[@]+"${ORAS_ANNOTATION_ARGS[@]}"})
 ATTACH_ARGS+=(${EXTRA_ARG_LIST[@]+"${EXTRA_ARG_LIST[@]}"})
-ATTACH_ARGS+=("${SUBJECT}" ${FILE_LIST[@]+"${FILE_LIST[@]}"})
+# After --, a file or subject that starts with "-" is not read as a flag.
+ATTACH_ARGS+=(-- "${SUBJECT}" ${FILE_LIST[@]+"${FILE_LIST[@]}"})
 
 echo "Attaching ${#FILE_LIST[@]} file(s) to ${SUBJECT} with ORAS..."
 echo "  Artifact type: ${ARTIFACT_TYPE}"
@@ -66,7 +67,7 @@ echo "  Working directory: ${WORKING_DIR}"
 echo "  Plain HTTP: ${PLAIN_HTTP}"
 # ORAS stores each file under the path it was given, relative to the
 # working directory.
-(cd "${WORKING_DIR}" && oras "${ATTACH_ARGS[@]}")
+(cd -- "${WORKING_DIR}" && oras "${ATTACH_ARGS[@]}")
 
 DIGEST=$(oras_manifest_digest "${MANIFEST}")
 echo "Attached to ${SUBJECT}, manifest digest ${DIGEST}."

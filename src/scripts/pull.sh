@@ -32,7 +32,8 @@ fi
 # Empty without extra_args, and bash before 4.4 treats an empty array as
 # unset under set -u, so it is expanded only when it has elements.
 PULL_ARGS+=(${EXTRA_ARG_LIST[@]+"${EXTRA_ARG_LIST[@]}"})
-PULL_ARGS+=("${REFERENCE}")
+# After --, a reference that starts with "-" is not read as a flag.
+PULL_ARGS+=(-- "${REFERENCE}")
 
 echo "Pulling ${REFERENCE} with ORAS..."
 echo "  Output directory: ${OUTPUT_DIR}"

@@ -75,7 +75,7 @@ run_login() {
         PARAM_PASSWORD="REGISTRY_PASSWORD" \
         PARAM_REGISTRY="registry.example:5000" \
         PARAM_PLAIN_HTTP="0" \
-        "$@" \
+        ${@+"$@"} \
         bash "${SCRIPT}" 2>&1)
     RC=$?
 }
@@ -107,7 +107,7 @@ args_are() { [[ -f "${WORK}/oras-args" && "$(cat "${WORK}/oras-args")" == "$(pri
 run_login
 check "logs in" rc_is_zero
 check "runs oras login with the username and the password on stdin" \
-    args_are login --password-stdin --username "${TEST_USERNAME}" "registry.example:5000"
+    args_are login --password-stdin --username "${TEST_USERNAME}" -- "registry.example:5000"
 check "sends the password on stdin" stdin_is "${TEST_PASSWORD}"
 check "keeps the password off oras's command line" args_lack "s3cret"
 check "never prints the password" output_lacks "s3cret"
@@ -115,7 +115,7 @@ check "names the variables the credentials came from" output_has "Password: from
 
 run_login PARAM_PLAIN_HTTP="1"
 check "passes --plain-http when asked" \
-    args_are login --password-stdin --username "${TEST_USERNAME}" --plain-http "registry.example:5000"
+    args_are login --password-stdin --username "${TEST_USERNAME}" --plain-http -- "registry.example:5000"
 
 run_login PARAM_PLAIN_HTTP="maybe"
 check "rejects a plain_http that isn't a boolean" rc_is_nonzero
@@ -133,7 +133,7 @@ check "turns xtrace off before reading the credentials" output_lacks "s3cret"
 run_login REGISTRY_USERNAME=""
 check "logs in with an identity token when the username is empty" rc_is_zero
 check "leaves --username out for an identity token" \
-    args_are login --password-stdin "registry.example:5000"
+    args_are login --password-stdin -- "registry.example:5000"
 check "says the password is used as an identity token" output_has "identity token"
 
 run_login PARAM_PASSWORD="UNSET_TEST_PASSWORD"

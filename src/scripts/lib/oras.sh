@@ -141,7 +141,7 @@ split_shell_words() {
 # (see split_shell_words), naming PARAMETER in any error. Nothing in it is
 # expanded or executed: a $(...) or backtick that reached a parameter through
 # an environment variable (a branch name, a commit message) reaches oras as
-# text.
+# text inside quotes, and fails the step outside them.
 oras_words() {
     local status=0
     split_shell_words "$2" || status=$?

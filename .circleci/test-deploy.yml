@@ -114,11 +114,20 @@ jobs:
       - run:
           name: Start A Registry That Requires A Login
           command: |
+            # mirror.gcr.io serves the Docker Hub images without Docker Hub's anonymous pull limits.
+            # A pull from it can time out, so pull with retries before running them.
+            for image in mirror.gcr.io/library/httpd:2 mirror.gcr.io/library/registry:2; do
+              for attempt in 1 2 3; do
+                docker pull "${image}" && break
+                sleep $((attempt * 10))
+              done
+            done
             mkdir -p /tmp/registry-auth
-            docker run --rm --entrypoint htpasswd httpd:2 -Bbn "${REGISTRY_USER}" "${REGISTRY_SECRET}" > /tmp/registry-auth/htpasswd
+            docker run --rm --entrypoint htpasswd mirror.gcr.io/library/httpd:2 -Bbn "${REGISTRY_USER}" "${REGISTRY_SECRET}" \
+              > /tmp/registry-auth/htpasswd
             docker run -d --name registry -p 5000:5000 -v /tmp/registry-auth:/auth \
               -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=oras-orb-ci \
-              -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd registry:2
+              -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd mirror.gcr.io/library/registry:2
             # A 401 means the registry is up and refuses anonymous requests.
             for _ in $(seq 1 30); do
               if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://${REGISTRY_HOST}/v2/")" == "401" ]]; then

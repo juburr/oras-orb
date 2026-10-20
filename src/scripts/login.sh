@@ -62,4 +62,4 @@ fi
 
 # The password goes on stdin, never on the command line. printf, not echo:
 # echo would take a password of -n or -e as its own option.
-printf '%s\n' "${PASSWORD}" | oras "${LOGIN_ARGS[@]}" "${REGISTRY}"
+printf '%s\n' "${PASSWORD}" | oras "${LOGIN_ARGS[@]}" -- "${REGISTRY}"

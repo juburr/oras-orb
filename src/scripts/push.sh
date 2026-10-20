@@ -55,7 +55,8 @@ fi
 # under set -u, so they are expanded only when they have elements.
 PUSH_ARGS+=(${ORAS_ANNOTATION_ARGS[@]+"${ORAS_ANNOTATION_ARGS[@]}"})
 PUSH_ARGS+=(${EXTRA_ARG_LIST[@]+"${EXTRA_ARG_LIST[@]}"})
-PUSH_ARGS+=("${REFERENCE}" "${FILE_LIST[@]}")
+# After --, a file or reference that starts with "-" is not read as a flag.
+PUSH_ARGS+=(-- "${REFERENCE}" "${FILE_LIST[@]}")
 
 echo "Pushing ${#FILE_LIST[@]} file(s) to ${REFERENCE} with ORAS..."
 echo "  Working directory: ${WORKING_DIR}"
@@ -63,7 +64,7 @@ echo "  Artifact type: ${ARTIFACT_TYPE:-<ORAS default>}"
 echo "  Plain HTTP: ${PLAIN_HTTP}"
 # ORAS stores each file under the path it was given, relative to the
 # working directory.
-(cd "${WORKING_DIR}" && oras "${PUSH_ARGS[@]}")
+(cd -- "${WORKING_DIR}" && oras "${PUSH_ARGS[@]}")
 
 DIGEST=$(oras_manifest_digest "${MANIFEST}")
 echo "Pushed ${REFERENCE}, manifest digest ${DIGEST}."
