@@ -1,0 +1,8 @@
+version: 2.1
+
+description: >
+  Simplifies installation and use of ORAS within CircleCI, used to push, pull and attach OCI artifacts, such as SBOMs and scan reports, in container registries.
+
+display:
+  home_url: "https://github.com/juburr/oras-orb"
+  source_url: "https://github.com/juburr/oras-orb"

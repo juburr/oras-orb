@@ -1,0 +1,39 @@
+description: >
+  Pulls an OCI artifact's files from a registry with oras pull, recreating
+  the paths they were pushed with under output_dir. Log in to the registry
+  first, unless it allows anonymous pulls.
+parameters:
+  reference:
+    type: string
+    description: >
+      Artifact to pull: <registry>/<repository>:<tag> or
+      <registry>/<repository>@<digest>, such as ghcr.io/myorg/reports:1.0.0.
+      Environment variables are expanded.
+  output_dir:
+    type: string
+    default: "."
+    description: >
+      Directory to pull the files into. Created if needed. ORAS refuses a
+      file whose path would land outside it.
+  plain_http:
+    type: boolean
+    default: false
+    description: >
+      Connect over plain HTTP instead of HTTPS, for a registry without TLS
+      such as a local test registry.
+  extra_args:
+    type: string
+    default: ""
+    description: >
+      More arguments for oras pull, split like shell words, such as
+      --keep-old-files. Nothing in them is run as shell code.
+steps:
+  - run:
+      name: ORAS Pull
+      environment:
+        PARAM_EXTRA_ARGS: << parameters.extra_args >>
+        PARAM_OUTPUT_DIR: << parameters.output_dir >>
+        PARAM_PLAIN_HTTP: << parameters.plain_http >>
+        PARAM_REFERENCE: << parameters.reference >>
+        SCRIPT_ORAS_LIB: << include(scripts/lib/oras.sh) >>
+      command: << include(scripts/pull.sh) >>

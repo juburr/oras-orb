@@ -1,0 +1,273 @@
+version: 2.1
+orbs:
+  # Your orb will be automatically injected here during the pipeline.
+  # Reference your orb's jobs and commands below as they will exist when built.
+  orb-tools: circleci/orb-tools@12.5
+  # The orb definition is intentionally not included here. It will be injected into the pipeline.
+  oras-orb: {}
+
+# Use this tag to ensure test jobs always run,
+# even though the downstream publish job will only run on release tags.
+filters: &filters
+  tags:
+    only: /.*/
+
+# Filter for release tags.
+release-filters: &release-filters
+  branches:
+    ignore: /.*/
+  tags:
+    only: /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+jobs:
+  # Create jobs to test the commands of your orbs.
+  # You may want to add additional validation steps to ensure the commands are working as expected.
+  command-test:
+    docker:
+      - image: cimg/base:current-22.04
+    steps:
+      - checkout
+      # Run your orb's commands to validate them.
+      - oras-orb/install
+      - run:
+          name: Verify Install
+          command: |
+            command -v oras
+            oras version
+  # Runs install.sh under the verify_checksums default declared in install.yml against a real
+  # ORAS release that has no checksum in the lookup table (a 404 cannot explain a failure).
+  checksum-test:
+    docker:
+      - image: cimg/base:current-22.04
+    environment:
+      UNLISTED_VERSION: 1.3.0-rc.2
+    steps:
+      - checkout
+      - run:
+          name: Unlisted Version Fails Closed By Default
+          command: |
+            REPO_DIR=$(pwd)
+            DEFAULT_MODE=$(yq '.parameters.verify_checksums.default' src/commands/install.yml)
+            echo "verify_checksums default: ${DEFAULT_MODE}"
+            cd "$(mktemp -d)" && mkdir bin
+            if PARAM_INSTALL_PATH="$(pwd)/bin" PARAM_VERIFY_CHECKSUMS="${DEFAULT_MODE}" PARAM_VERSION="${UNLISTED_VERSION}" \
+                bash "${REPO_DIR}/src/scripts/install.sh"; then
+              echo "FAIL: install succeeded for unlisted version ${UNLISTED_VERSION} under the default."
+              exit 1
+            fi
+            if [[ -e bin/oras || -n "$(ls -A | grep -vx bin)" ]]; then
+              echo "FAIL: install downloaded or installed ORAS before rejecting the unlisted version."
+              exit 1
+            fi
+            echo "PASS: unlisted version ${UNLISTED_VERSION} failed closed before download."
+      - run:
+          name: known_versions Opt-Out Installs Unlisted Version
+          command: |
+            REPO_DIR=$(pwd)
+            cd "$(mktemp -d)" && mkdir bin
+            PARAM_INSTALL_PATH="$(pwd)/bin" PARAM_VERIFY_CHECKSUMS=known_versions PARAM_VERSION="${UNLISTED_VERSION}" \
+              bash "${REPO_DIR}/src/scripts/install.sh" 2>&1 | tee install.log
+            grep -q "has no checksum for ORAS ${UNLISTED_VERSION}" install.log
+            grep -q "UNVERIFIED" install.log
+            bin/oras version | grep -E "^Version: +${UNLISTED_VERSION//./\\.}$"
+  # Installs on an Arm machine to confirm the arm64 build is selected and verified. The second
+  # install restores the release cached by the first, covering the cache-hit path.
+  arm64-test:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: arm.medium
+    steps:
+      - oras-orb/install
+      - oras-orb/install
+      - run:
+          name: Verify arm64 Install
+          command: |
+            if [[ "$(uname -m)" != "aarch64" ]]; then
+              echo "FAIL: expected an aarch64 machine, got $(uname -m)."
+              exit 1
+            fi
+            ORAS_FILE_TYPE=$(file -L "$(command -v oras)")
+            echo "${ORAS_FILE_TYPE}"
+            if [[ "${ORAS_FILE_TYPE}" != *"ARM aarch64"* ]]; then
+              echo "FAIL: the installed oras binary is not an arm64 build."
+              exit 1
+            fi
+            oras version
+  # Runs every command (install, login, push, pull, attach, logout) under one ORAS version against a
+  # local registry:2 that requires a login, over plain HTTP. The workflow runs it for the oldest
+  # release in the checksum table and for the install command's default. The pushed files include a
+  # path with a space, and an annotation with a comma and an environment variable.
+  registry-test:
+    parameters:
+      oras_version:
+        type: string
+        description: ORAS version to install, or "default" to use the install command's default version.
+    machine:
+      image: ubuntu-2204:current
+    environment:
+      CI_DIR: /tmp/oras-ci
+      REGISTRY_HOST: localhost:5000
+      REGISTRY_USER: ci-user
+      REGISTRY_SECRET: ci-password
+    steps:
+      - checkout
+      - run:
+          name: Start A Registry That Requires A Login
+          command: |
+            # mirror.gcr.io serves the Docker Hub images without Docker Hub's anonymous pull limits.
+            # A pull from it can time out, so pull with retries before running them.
+            for image in mirror.gcr.io/library/httpd:2 mirror.gcr.io/library/registry:2; do
+              for attempt in 1 2 3; do
+                docker pull "${image}" && break
+                sleep $((attempt * 10))
+              done
+            done
+            mkdir -p /tmp/registry-auth
+            docker run --rm --entrypoint htpasswd mirror.gcr.io/library/httpd:2 -Bbn "${REGISTRY_USER}" "${REGISTRY_SECRET}" \
+              > /tmp/registry-auth/htpasswd
+            docker run -d --name registry -p 5000:5000 -v /tmp/registry-auth:/auth \
+              -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=oras-orb-ci \
+              -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd mirror.gcr.io/library/registry:2
+            # A 401 means the registry is up and refuses anonymous requests.
+            for _ in $(seq 1 30); do
+              if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://${REGISTRY_HOST}/v2/")" == "401" ]]; then
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "FAIL: the registry did not start."
+            docker logs registry
+            exit 1
+      - when:
+          condition:
+            equal: ["default", << parameters.oras_version >>]
+          steps:
+            - oras-orb/install
+      - unless:
+          condition:
+            equal: ["default", << parameters.oras_version >>]
+          steps:
+            - oras-orb/install:
+                version: << parameters.oras_version >>
+      - run:
+          name: Verify ORAS Version
+          command: |
+            EXPECTED_VERSION="<< parameters.oras_version >>"
+            if [[ "${EXPECTED_VERSION}" == "default" ]]; then
+              EXPECTED_VERSION=$(awk '/^  version:/ { found = 1 } found && /default:/ { gsub(/"/, "", $2); print $2; exit }' src/commands/install.yml)
+            fi
+            oras version
+            oras version | grep -E "^Version: +${EXPECTED_VERSION//./\\.}$"
+      - run:
+          name: Create Test Files
+          command: |
+            mkdir -p "${CI_DIR}/reports dir"
+            echo "scan passed" > "${CI_DIR}/scan.txt"
+            echo '{"spdxVersion": "SPDX-2.3"}' > "${CI_DIR}/reports dir/sbom.spdx.json"
+            echo "signature" > "${CI_DIR}/signature.txt"
+      - oras-orb/login:
+          registry: ${REGISTRY_HOST}
+          username: REGISTRY_USER
+          password: REGISTRY_SECRET
+          plain_http: true
+      - oras-orb/push:
+          reference: ${REGISTRY_HOST}/oras-orb-ci/reports:ci
+          files: |
+            scan.txt
+            "reports dir/sbom.spdx.json:application/spdx+json"
+          working_dir: ${CI_DIR}
+          artifact_type: application/vnd.oras-orb.ci.reports
+          annotations: |
+            org.opencontainers.image.description=CI reports, pushed by oras-orb
+            org.opencontainers.image.revision=${CIRCLE_SHA1}
+          plain_http: true
+      - run:
+          name: Verify Pushed Artifact
+          command: |
+            echo "ORAS_PUSHED_DIGEST=${ORAS_PUSHED_DIGEST}"
+            REGISTRY_DIGEST=$(curl -sS --fail -u "${REGISTRY_USER}:${REGISTRY_SECRET}" -o /dev/null -D - \
+              -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+              "http://${REGISTRY_HOST}/v2/oras-orb-ci/reports/manifests/ci" \
+              | awk -F': ' 'tolower($1) == "docker-content-digest" { print $2 }' | tr -d '\r')
+            echo "Registry digest: ${REGISTRY_DIGEST}"
+            [[ -n "${REGISTRY_DIGEST}" && "${REGISTRY_DIGEST}" == "${ORAS_PUSHED_DIGEST}" ]]
+            curl -sS --fail -u "${REGISTRY_USER}:${REGISTRY_SECRET}" \
+              -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+              "http://${REGISTRY_HOST}/v2/oras-orb-ci/reports/manifests/${ORAS_PUSHED_DIGEST}" > /tmp/manifest.json
+            python3 - \<< 'EOF'
+            import json, os
+            manifest = json.load(open("/tmp/manifest.json"))
+            annotations = manifest["annotations"]
+            layers = {l["annotations"]["org.opencontainers.image.title"]: l["mediaType"] for l in manifest["layers"]}
+            print(json.dumps({"annotations": annotations, "layers": layers}, indent=2))
+            assert annotations["org.opencontainers.image.description"] == "CI reports, pushed by oras-orb"
+            assert annotations["org.opencontainers.image.revision"] == os.environ["CIRCLE_SHA1"]
+            assert layers["reports dir/sbom.spdx.json"] == "application/spdx+json"
+            assert "scan.txt" in layers
+            EOF
+      - oras-orb/pull:
+          reference: ${REGISTRY_HOST}/oras-orb-ci/reports@${ORAS_PUSHED_DIGEST}
+          output_dir: /tmp/pulled files
+          plain_http: true
+      - run:
+          name: Verify Pulled Files
+          command: |
+            cmp "${CI_DIR}/scan.txt" "/tmp/pulled files/scan.txt"
+            cmp "${CI_DIR}/reports dir/sbom.spdx.json" "/tmp/pulled files/reports dir/sbom.spdx.json"
+      - oras-orb/attach:
+          subject: ${REGISTRY_HOST}/oras-orb-ci/reports@${ORAS_PUSHED_DIGEST}
+          artifact_type: application/vnd.oras-orb.ci.signature
+          files: signature.txt
+          working_dir: ${CI_DIR}
+          plain_http: true
+          digest_env_var: SIGNATURE_DIGEST
+      - run:
+          name: Verify Attached Artifact
+          command: |
+            echo "SIGNATURE_DIGEST=${SIGNATURE_DIGEST}"
+            oras discover --plain-http "${REGISTRY_HOST}/oras-orb-ci/reports@${ORAS_PUSHED_DIGEST}" | tee /tmp/discover.txt
+            grep -qF "${SIGNATURE_DIGEST}" /tmp/discover.txt
+      - oras-orb/logout:
+          registry: ${REGISTRY_HOST}
+      - run:
+          name: Verify Logout
+          command: |
+            if oras pull --plain-http --output /tmp/after-logout "${REGISTRY_HOST}/oras-orb-ci/reports@${ORAS_PUSHED_DIGEST}"; then
+              echo "FAIL: oras pulled from the registry after logout."
+              exit 1
+            fi
+            echo "PASS: the registry refuses oras after logout."
+
+workflows:
+  test-deploy:
+    jobs:
+      # Make sure to include "filters: *filters" in every test job you want to run as part of your deployment.
+      # Test your orb's commands in a custom job and test your orb's jobs directly as a part of this workflow.
+      - command-test:
+          filters: *filters
+      - checksum-test:
+          filters: *filters
+      - arm64-test:
+          filters: *filters
+      - registry-test:
+          name: registry-test-<< matrix.oras_version >>
+          matrix:
+            parameters:
+              oras_version: ["1.0.0", "default"]
+          filters: *filters
+      # The orb must be re-packed for publishing, and saved to the workspace.
+      - orb-tools/pack:
+          filters: *release-filters
+      - orb-tools/publish:
+          orb_name: juburr/oras-orb
+          vcs_type: << pipeline.project.type >>
+          pub_type: production
+          # Ensure this job requires all test jobs and the pack job.
+          requires:
+            - orb-tools/pack
+            - command-test
+            - checksum-test
+            - arm64-test
+            - registry-test
+          context: orb-publishing
+          filters: *release-filters

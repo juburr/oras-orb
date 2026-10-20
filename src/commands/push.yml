@@ -1,0 +1,70 @@
+description: >
+  Pushes files to a registry as an OCI artifact with oras push, such as an
+  SBOM, a scan report or a build output, and exports the digest of the
+  manifest it pushed. Log in to the registry first, unless it allows
+  anonymous pushes.
+parameters:
+  reference:
+    type: string
+    description: >
+      Where to push the artifact: <registry>/<repository>:<tag>, such as
+      ghcr.io/myorg/reports:1.0.0. Several tags can be pushed at once as
+      <tag>,<tag>. Environment variables are expanded.
+  files:
+    type: string
+    description: >
+      Files or directories to push, relative to working_dir and separated by
+      spaces or newlines. Quote a path that has spaces; wildcards are not
+      expanded. Add :<media type> to a file to set its media type, such as
+      sbom.json:application/spdx+json. ORAS stores each file under the path
+      given here, and pull recreates it, so keep paths inside working_dir:
+      pull refuses a path with .. that would leave its output directory.
+  artifact_type:
+    type: string
+    default: ""
+    description: >
+      The artifact's type, a media type such as
+      application/vnd.example.report.v1. ORAS sets its own when this is empty.
+  annotations:
+    type: string
+    default: ""
+    description: >
+      Annotations for the artifact's manifest, one key=value per line, such
+      as org.opencontainers.image.description=Nightly scan report.
+  working_dir:
+    type: string
+    default: "."
+    description: >
+      Directory that files are relative to.
+  plain_http:
+    type: boolean
+    default: false
+    description: >
+      Connect over plain HTTP instead of HTTPS, for a registry without TLS
+      such as a local test registry.
+  extra_args:
+    type: string
+    default: ""
+    description: >
+      More arguments for oras push, split like shell words, such as
+      --concurrency 10. Nothing in them is run as shell code.
+  digest_env_var:
+    type: env_var_name
+    default: ORAS_PUSHED_DIGEST
+    description: >
+      Name of the environment variable to set, for later steps, to the
+      digest of the pushed manifest, such as sha256:4c1f….
+steps:
+  - run:
+      name: ORAS Push
+      environment:
+        PARAM_ANNOTATIONS: << parameters.annotations >>
+        PARAM_ARTIFACT_TYPE: << parameters.artifact_type >>
+        PARAM_DIGEST_ENV_VAR: << parameters.digest_env_var >>
+        PARAM_EXTRA_ARGS: << parameters.extra_args >>
+        PARAM_FILES: << parameters.files >>
+        PARAM_PLAIN_HTTP: << parameters.plain_http >>
+        PARAM_REFERENCE: << parameters.reference >>
+        PARAM_WORKING_DIR: << parameters.working_dir >>
+        SCRIPT_ORAS_LIB: << include(scripts/lib/oras.sh) >>
+      command: << include(scripts/push.sh) >>
