@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an unofficial CircleCI orb for ORAS (OCI Registry As Storage), the CLI that pushes, pulls and attaches arbitrary files as OCI artifacts in container registries. The orb installs a checksum-verified ORAS and wraps its most used commands.
+This is an unofficial CircleCI orb, and set of GitHub Actions, for ORAS (OCI Registry As Storage), the CLI that pushes, pulls and attaches arbitrary files as OCI artifacts in container registries. The orb installs a checksum-verified ORAS and wraps its most used commands.
 
 ## Development Commands
 
@@ -38,6 +38,7 @@ for t in tests/*_test.sh; do bash "$t" || break; done
 - `scripts/` - Shell implementations, one per command, included with `<< include(scripts/...) >>`
 - `scripts/lib/oras.sh` - Helpers shared by the command scripts. Each command passes it to its step as `SCRIPT_ORAS_LIB: << include(scripts/lib/oras.sh) >>`, and the script `eval`s it after checking it is set. It only defines functions and has no `set` line.
 - `examples/` - Usage examples, pinned to the orb's current version
+- `../actions/<command>/action.yml` - The GitHub Action for each command (see below)
 
 ### Key Implementation Details
 
@@ -56,10 +57,17 @@ for t in tests/*_test.sh; do bash "$t" || break; done
 
 **`push.sh` / `attach.sh`**: Run oras in a subshell `cd`'d to `working_dir`, since ORAS stores each file under the path it was given and ORAS 1.0.1 and later refuse absolute paths. The `--export-manifest` file comes from `mktemp` and is removed by the script's EXIT trap.
 
-### CI Pipeline (`.circleci/`)
+### GitHub Actions (`actions/`)
 
-- `config.yml` - Setup workflow: `test-install` (install contract), `test-env-subst` (env subst and shell conventions), `test-commands` (`tests/login_test.sh` and `tests/commands_test.sh` against a stand-in oras), orb-tools lint, pack and review, shellcheck.
+Every command has a composite action of the same name in `actions/<command>/action.yml`, with inputs identical to the command's parameters (names and defaults). Each step passes inputs to the orb's script as `PARAM_*` environment variables, as the command does, and runs it with `bash "${GITHUB_ACTION_PATH}/../run_script.sh" SCRIPT SCRIPT_ORAS_LIB=<lib>`. Inputs never appear inside a `run:` script. `push` and `attach` take `working_dir` as their scripts do, through `PARAM_WORKING_DIR`. `install` restores and saves `actions/cache` with the command's key ingredients. `login`'s credentials come from the variables its inputs name, which a workflow sets in the `env` of the step that uses it. Every `uses:` is pinned to a commit SHA with its version in a comment.
+
+`actions/run_script.sh` and `tests/actions_test.sh` are identical in every juburr orb that ships actions; never edit them here alone. Keep the actions in sync with the command YAML by hand or with an equivalent generator, and quote any default a YAML 1.1 reader would take for a boolean or number: every input is a string. Without the CircleCI CLI, `oras_subst` uses values as they are, so the action descriptions leave out "Environment variables are expanded". `tests/actions_test.sh` checks all of this.
+
+### CI Pipeline
+
+- `.circleci/config.yml` - Setup workflow: `test-install` (install contract), `test-env-subst` (env subst and shell conventions), `test-commands` (`tests/login_test.sh` and `tests/commands_test.sh` against a stand-in oras), `test-actions` (`tests/actions_test.sh`), orb-tools lint, pack and review, shellcheck.
 - `test-deploy.yml` - `command-test`, `checksum-test` (an unlisted release candidate fails closed; `known_versions` installs it), `arm64-test` (Arm machine, second install from cache), and `registry-test`, a matrix over ORAS 1.0.0 and the default version that runs every command against a `registry:2` with htpasswd auth on a machine executor: the exported digest must match the registry's, pulled files must match, the attached artifact must show up in `oras discover`, and a pull must fail after `logout`. Publishing runs on `v*` tags.
+- `.github/workflows/actions.yml` - The actions on GitHub's runners: `offline-tests`; `install` (amd64 and arm64, a second install from the cache, an unlisted version failing); `install-from-cache` (the download hosts blocked); and `registry`, which mirrors `registry-test` (ORAS 1.0.0 and the default against a `registry:2` with htpasswd auth, started with `docker run`), plus a login with a wrong password that must fail.
 
 ## Linting
 

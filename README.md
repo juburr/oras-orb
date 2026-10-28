@@ -2,27 +2,29 @@
 
 <img src="assets/logos/oras-orb-512px.png" width="256" alt="ORAS Orb logo: a glowing blue orb holding a stack of layers and a container, circled by an orbit with small gear, code and rocket icons, above the words oras-orb and packages, registries, automation, in a round dark badge">
 
-# ORAS Orb for CircleCI
+# ORAS for CircleCI and GitHub Actions
 
-### Push, pull and attach OCI artifacts in your registry, straight from CircleCI.
+### Push, pull and attach OCI artifacts in your registry, from CircleCI or GitHub Actions.
 
-Install a checksum-verified [ORAS](https://oras.land) and store any file in a container registry:<br>
+Install a checksum-verified [ORAS](https://oras.land) and store any file in a container registry, with orb commands or GitHub Actions:<br>
 reports, SBOMs, signatures and build outputs, pushed on their own or attached to an image.<br>
 Strict SHA-512 verification by default · No `sudo` · Passwords never on the command line
 
 [![CircleCI Build Status](https://circleci.com/gh/juburr/oras-orb.svg?style=shield "CircleCI Build Status")](https://circleci.com/gh/juburr/oras-orb)
+[![GitHub Actions Status](https://github.com/juburr/oras-orb/actions/workflows/actions.yml/badge.svg?branch=main "GitHub Actions Status")](https://github.com/juburr/oras-orb/actions/workflows/actions.yml)
 [![CircleCI Orb Version](https://badges.circleci.com/orbs/juburr/oras-orb.svg)](https://circleci.com/developer/orbs/orb/juburr/oras-orb)
 [![GitHub License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 [![CircleCI Community](https://img.shields.io/badge/community-CircleCI%20Discuss-343434.svg)](https://discuss.circleci.com/c/ecosystem/orbs)
 
+![CircleCI orb and GitHub Actions](https://img.shields.io/badge/CI-CircleCI%20%7C%20GitHub%20Actions-F97316?style=for-the-badge)
 ![ORAS 1.x](https://img.shields.io/badge/ORAS-1.x-7C3AED?style=for-the-badge)
 ![amd64 and arm64](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-0EA5E9?style=for-the-badge&logo=linux&logoColor=white)
 ![SHA-512 verified by default](https://img.shields.io/badge/SHA--512-strict%20by%20default-16A34A?style=for-the-badge)
 ![No sudo required](https://img.shields.io/badge/sudo-not%20required-DB2777?style=for-the-badge)
 
-**[Quick Start](#-quick-start)** · **[Features](#-why-oras-orb)** · **[Recipes](#-recipes)** · **[Commands](#-commands)** · **[Security](#-secure-by-design)** · **[Network Access](#-network-access)**
+**[Quick Start](#-quick-start)** · **[Features](#-why-oras-orb)** · **[Recipes](#-recipes)** · **[Commands](#-commands)** · **[GitHub Actions](#-github-actions)** · **[Security](#-secure-by-design)** · **[Network Access](#-network-access)**
 
-<sub>An unofficial, community-maintained orb. [Contributions are welcome!](#-contributing)</sub>
+<sub>An unofficial, community-maintained CircleCI orb and set of GitHub Actions. [Contributions are welcome!](#-contributing)</sub>
 
 </div>
 
@@ -98,13 +100,15 @@ flowchart LR
 
 ## 🚀 Quick Start
 
+### CircleCI
+
 Add the orb, install ORAS, push your files. Copy this into `.circleci/config.yml`:
 
 ```yaml
 version: 2.1
 
 orbs:
-  oras: juburr/oras-orb@0.1.0
+  oras: juburr/oras-orb@0.2.0
 
 jobs:
   publish_reports:
@@ -135,6 +139,47 @@ workflows:
 ```
 
 Swap in your registry, repository and files, put `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` in the `registry-credentials` context (for GHCR, your GitHub username and a token that can write packages), and push. ORAS stores each file under the path you give, relative to `working_dir`, so `oras pull ghcr.io/my-org/myapp-reports:<commit SHA>`, or the `pull` command, recreates `reports/tests.txt`. The digest of what was pushed is in `ORAS_PUSHED_DIGEST` for the rest of the job.
+
+### GitHub Actions
+
+```yaml
+name: Publish Reports
+
+on: push
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-reports:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build reports
+        run: mkdir -p reports && echo "all tests passed" > reports/tests.txt
+      - uses: juburr/oras-orb/actions/install@v0.2.0
+        with:
+          version: "1.3.5"
+      # Reads the credentials from REGISTRY_USERNAME and REGISTRY_PASSWORD.
+      - uses: juburr/oras-orb/actions/login@v0.2.0
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          registry: ghcr.io
+      - uses: juburr/oras-orb/actions/push@v0.2.0
+        with:
+          reference: ghcr.io/my-org/myapp-reports:${{ github.sha }}
+          files: reports/tests.txt
+          artifact_type: application/vnd.my-org.reports.v1
+      - uses: juburr/oras-orb/actions/logout@v0.2.0
+        if: always()
+        with:
+          registry: ghcr.io
+```
+
+The job's `GITHUB_TOKEN` can push to GHCR with `packages: write`. The digest of what was pushed is in `ORAS_PUSHED_DIGEST` for the rest of the job. See [GitHub Actions](#-github-actions) for how the actions map to the orb's commands.
 
 > [!IMPORTANT]
 > This orb is at 0.x, so a minor release may still change a command or parameter. Pin the orb version, and the ORAS `version` as shown, so neither changes until you decide.
@@ -283,6 +328,31 @@ Attaches files to an image or artifact already in a registry with `oras attach`,
 
 String parameters expand environment variables, such as `${CIRCLE_SHA1}`. In `files` and `extra_args` that happens before the value is split, so quote a variable that may hold spaces: `"${REPORT_FILE}"`.
 
+## ⚡ GitHub Actions
+
+Each of the orb's commands has a GitHub Action of the same name. The actions run the same scripts as the orb, so they do the same things the same way, and take the same inputs with the same defaults.
+
+| Action | Orb command |
+| --- | --- |
+| `juburr/oras-orb/actions/install@v0.2.0` | [`oras/install`](#orasinstall) |
+| `juburr/oras-orb/actions/login@v0.2.0` | [`oras/login`](#oraslogin) |
+| `juburr/oras-orb/actions/logout@v0.2.0` | [`oras/logout`](#oraslogout) |
+| `juburr/oras-orb/actions/push@v0.2.0` | [`oras/push`](#oraspush) |
+| `juburr/oras-orb/actions/pull@v0.2.0` | [`oras/pull`](#oraspull) |
+| `juburr/oras-orb/actions/attach@v0.2.0` | [`oras/attach`](#orasattach) |
+
+How they differ from the orb's commands:
+
+- **Versions.** An action is referenced by the repository's release tag, such as `v0.2.0`, the same tag the orb is published from. There is no moving major tag yet. For the strongest pinning, use the tag's commit SHA: `juburr/oras-orb/actions/push@<sha> # v0.2.0`.
+- **Inputs are strings.** Write booleans quoted or not (`plain_http: true` reaches the script as `true`); the scripts check every boolean themselves.
+- **Credentials.** `login`'s `username` and `password` name environment variables, as in the orb. Set them in the `env` of the step that uses `login`, from secrets, as in the [Quick Start](#github-actions). They reach the action's script and nothing else.
+- **Environment variables.** The orb expands `$NAME` in its parameters with the CircleCI CLI, which GitHub's runners don't have, so the actions take values as they are. Use GitHub's expressions instead, such as `reference: ghcr.io/my-org/reports:${{ github.sha }}`, or `${{ env.ORAS_PUSHED_DIGEST }}` for the digest an earlier `push` exported.
+- **Caching.** `caching` stores the verified release with [`actions/cache`](https://github.com/actions/cache), with the same key ingredients as the orb. The cache is restored before the install and saved right after it, and what it restores is verified again. It counts toward the repository's GitHub Actions cache storage.
+- **Exports.** What a command exports to later steps (the install path on the `PATH`, the digests `push` and `attach` export) is passed on through `GITHUB_PATH` and `GITHUB_ENV`.
+- **Runners.** CI installs ORAS on GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners, once from the cache with the download hosts blocked, and runs every action against a registry that requires a login, under ORAS 1.0.0 and the default version, as on CircleCI.
+
+The actions are composite actions in [`actions/`](actions), next to the orb's source. Each passes its inputs to the orb's script as environment variables, never pasting them into a script, and [`actions/run_script.sh`](actions/run_script.sh) gives the script what CircleCI would: a `BASH_ENV` file for the values it hands to later steps, which it then passes on through `GITHUB_PATH` and `GITHUB_ENV`.
+
 ## 🔒 Secure by Design
 
 - **Least Privilege**: Installs to a user-owned directory by default, with no `sudo` usage anywhere in this orb.
@@ -296,7 +366,7 @@ String parameters expand environment variables, such as `${CIRCLE_SHA1}`. In `fi
 
 ## 💻 Supported Platforms
 
-Linux executors on `x86_64` (amd64) and `aarch64`/`arm64` (arm64), including CircleCI [Arm resource classes](https://circleci.com/docs/using-arm/). The `install` command picks the ORAS release asset for the architecture reported by `uname -m` and, in the default `strict` mode, verifies it against that architecture's SHA-512 checksum. Any other operating system or architecture fails the install rather than installing a binary that can't run. CI installs on `cimg/base` (Docker, amd64) and on an Arm machine executor, and runs every command against a registry that requires a login, under ORAS 1.0.0 and the default version.
+Linux executors on `x86_64` (amd64) and `aarch64`/`arm64` (arm64), including CircleCI [Arm resource classes](https://circleci.com/docs/using-arm/). The `install` command picks the ORAS release asset for the architecture reported by `uname -m` and, in the default `strict` mode, verifies it against that architecture's SHA-512 checksum. Any other operating system or architecture fails the install rather than installing a binary that can't run. CI installs on `cimg/base` (Docker, amd64) and on an Arm machine executor, and runs every command against a registry that requires a login, under ORAS 1.0.0 and the default version. The GitHub Actions run on GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners (see [GitHub Actions](#-github-actions)).
 
 `install` needs bash 4 or newer, `curl` or `wget`, `awk`, `tar`, `gzip`, and the standard coreutils, including `mktemp` and, when it verifies, `sha512sum`. `push` and `attach` also need `sha256sum` to work out the digest they export. CircleCI's `cimg` and machine images have all of them; on an image that lacks one, such as Red Hat UBI, install it in an earlier step (for example `microdnf install -y tar gzip`).
 
@@ -324,6 +394,7 @@ Hosts to allow (HTTPS, port 443) when running on a locked-down, self-hosted runn
 | `release-assets.githubusercontent.com` | `install` | Where GitHub currently redirects release downloads |
 | `objects.githubusercontent.com` | `install` | GitHub's previous redirect target for release downloads; allow it as well |
 | `circleci-tasks-prod.s3.us-east-1.amazonaws.com` | `install` with `caching: true` (the default), on CircleCI cloud with self-hosted runners | CircleCI's cache storage, used by the built-in `restore_cache` and `save_cache` steps (see the [runner FAQ](https://circleci.com/docs/guides/execution-runner/runner-faqs/#what-connectivity-is-required)). Set `caching: false` to avoid it. |
+| GitHub's cache storage | `install` with `caching: true`, through `actions/cache`, on self-hosted GitHub runners | The verified release (see GitHub's [self-hosted runner communication](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#requirements-for-communication-with-github)). Set `caching: false` to avoid it. |
 
 Hosts you configure, contacted only by the commands that take them:
 
@@ -363,5 +434,5 @@ Need the logo for a slide deck, blog post, or internal developer portal? PNGs wi
   <br>
   <sub>Any file, in the registry you already run. If this orb helps your team, a ⭐ helps others find it.</sub>
   <br>
-  <sub><a href="#oras-orb-for-circleci">Back to top ↑</a></sub>
+  <sub><a href="#oras-for-circleci-and-github-actions">Back to top ↑</a></sub>
 </div>
