@@ -6,7 +6,7 @@ description: >
 usage:
   version: 2.1
   orbs:
-    oras: juburr/oras-orb@0.2.0
+    oras: juburr/oras-orb@0.2.1
   jobs:
     attach-sbom:
       docker:
