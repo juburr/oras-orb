@@ -108,7 +108,7 @@ Add the orb, install ORAS, push your files. Copy this into `.circleci/config.yml
 version: 2.1
 
 orbs:
-  oras: juburr/oras-orb@0.2.0
+  oras: juburr/oras-orb@0.2.1
 
 jobs:
   publish_reports:
@@ -158,22 +158,22 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build reports
         run: mkdir -p reports && echo "all tests passed" > reports/tests.txt
-      - uses: juburr/oras-orb/actions/install@v0.2.0
+      - uses: juburr/oras-orb/actions/install@v0.2.1
         with:
           version: "1.3.5"
       # Reads the credentials from REGISTRY_USERNAME and REGISTRY_PASSWORD.
-      - uses: juburr/oras-orb/actions/login@v0.2.0
+      - uses: juburr/oras-orb/actions/login@v0.2.1
         env:
           REGISTRY_USERNAME: ${{ github.actor }}
           REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         with:
           registry: ghcr.io
-      - uses: juburr/oras-orb/actions/push@v0.2.0
+      - uses: juburr/oras-orb/actions/push@v0.2.1
         with:
           reference: ghcr.io/my-org/myapp-reports:${{ github.sha }}
           files: reports/tests.txt
           artifact_type: application/vnd.my-org.reports.v1
-      - uses: juburr/oras-orb/actions/logout@v0.2.0
+      - uses: juburr/oras-orb/actions/logout@v0.2.1
         if: always()
         with:
           registry: ghcr.io
@@ -334,16 +334,16 @@ Each of the orb's commands has a GitHub Action of the same name. The actions run
 
 | Action | Orb command |
 | --- | --- |
-| `juburr/oras-orb/actions/install@v0.2.0` | [`oras/install`](#orasinstall) |
-| `juburr/oras-orb/actions/login@v0.2.0` | [`oras/login`](#oraslogin) |
-| `juburr/oras-orb/actions/logout@v0.2.0` | [`oras/logout`](#oraslogout) |
-| `juburr/oras-orb/actions/push@v0.2.0` | [`oras/push`](#oraspush) |
-| `juburr/oras-orb/actions/pull@v0.2.0` | [`oras/pull`](#oraspull) |
-| `juburr/oras-orb/actions/attach@v0.2.0` | [`oras/attach`](#orasattach) |
+| `juburr/oras-orb/actions/install@v0.2.1` | [`oras/install`](#orasinstall) |
+| `juburr/oras-orb/actions/login@v0.2.1` | [`oras/login`](#oraslogin) |
+| `juburr/oras-orb/actions/logout@v0.2.1` | [`oras/logout`](#oraslogout) |
+| `juburr/oras-orb/actions/push@v0.2.1` | [`oras/push`](#oraspush) |
+| `juburr/oras-orb/actions/pull@v0.2.1` | [`oras/pull`](#oraspull) |
+| `juburr/oras-orb/actions/attach@v0.2.1` | [`oras/attach`](#orasattach) |
 
 How they differ from the orb's commands:
 
-- **Versions.** An action is referenced by the repository's release tag, such as `v0.2.0`, the same tag the orb is published from. There is no moving major tag yet. For the strongest pinning, use the tag's commit SHA: `juburr/oras-orb/actions/push@<sha> # v0.2.0`.
+- **Versions.** An action is referenced by the repository's release tag, such as `v0.2.1`, the same tag the orb is published from. There is no moving major tag yet. For the strongest pinning, use the tag's commit SHA: `juburr/oras-orb/actions/push@<sha> # v0.2.1`.
 - **Inputs are strings.** Write booleans quoted or not (`plain_http: true` reaches the script as `true`); the scripts check every boolean themselves.
 - **Credentials.** `login`'s `username` and `password` name environment variables, as in the orb. Set them in the `env` of the step that uses `login`, from secrets, as in the [Quick Start](#github-actions). They reach the action's script and nothing else.
 - **Environment variables.** The orb expands `$NAME` in its parameters with the CircleCI CLI, which GitHub's runners don't have, so the actions take values as they are. Use GitHub's expressions instead, such as `reference: ghcr.io/my-org/reports:${{ github.sha }}`, or `${{ env.ORAS_PUSHED_DIGEST }}` for the digest an earlier `push` exported.
