@@ -1,0 +1,46 @@
+name: Log in to a registry with ORAS
+description: >
+  Logs in to an OCI registry with oras login. ORAS stores the credentials where
+  Docker does, in ~/.docker/config.json or the credential helper it names, so
+  the orb's other commands and later oras or docker commands can use them. Run
+  logout when the job no longer needs them. The GitHub Actions twin of the orb's
+  login command.
+author: juburr
+
+inputs:
+  password:
+    description: >
+      Name of the environment variable holding the password or token. It reaches
+      oras on stdin, never on its command line. Set it in the env of the step
+      that uses this action, from a secret.
+    default: REGISTRY_PASSWORD
+  plain_http:
+    description: >
+      Connect over plain HTTP instead of HTTPS, for a registry without TLS such
+      as a local test registry.
+    default: "false"
+  registry:
+    description: >
+      Registry host to log in to, with an optional port, such as ghcr.io or
+      localhost:5000.
+    required: true
+  username:
+    description: >
+      Name of the environment variable holding the username. When that variable
+      is empty, ORAS uses the password as an identity token. Set it in the env
+      of the step that uses this action.
+    default: REGISTRY_USERNAME
+
+runs:
+  using: composite
+  steps:
+    - name: ORAS Login
+      shell: bash
+      env:
+        PARAM_PASSWORD: ${{ inputs.password }}
+        PARAM_PLAIN_HTTP: ${{ inputs.plain_http }}
+        PARAM_REGISTRY: ${{ inputs.registry }}
+        PARAM_USERNAME: ${{ inputs.username }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/login.sh"
+        "SCRIPT_ORAS_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/oras.sh"

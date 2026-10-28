@@ -1,0 +1,70 @@
+name: Attach files to an artifact with ORAS
+description: >
+  Attaches files, such as an SBOM, a scan report or a signature, to an image or
+  artifact already in a registry with oras attach, and exports the digest of the
+  manifest it pushed. The new artifact names the original as its subject, so the
+  registry lists it among the original's referrers, where oras discover finds
+  it. Log in to the registry first. The GitHub Actions twin of the orb's attach
+  command.
+author: juburr
+
+inputs:
+  annotations:
+    description: >
+      Annotations for the attached artifact's manifest, one key=value per line.
+    default: ""
+  artifact_type:
+    description: >
+      The attached artifact's type, a media type such as application/spdx+json,
+      which oras discover can filter on.
+    required: true
+  digest_env_var:
+    description: >
+      Name of the environment variable to set, for later steps, to the digest of
+      the attached artifact's manifest.
+    default: ORAS_ATTACHED_DIGEST
+  extra_args:
+    description: >
+      More arguments for oras attach, split like shell words. Nothing in them is
+      run as shell code.
+    default: ""
+  files:
+    description: >
+      Files to attach, relative to working_dir and separated by spaces or
+      newlines, as push takes them: quote a path that has spaces, wildcards are
+      not expanded, and :<media type> sets a file's media type. Attach needs
+      files, annotations or both.
+    default: ""
+  plain_http:
+    description: >
+      Connect over plain HTTP instead of HTTPS, for a registry without TLS such
+      as a local test registry.
+    default: "false"
+  subject:
+    description: >
+      Image or artifact to attach to: <registry>/<repository>@<digest>, or
+      :<tag> in place of @<digest>. A digest attaches to exactly what was
+      pushed, such as the digest the push command exports.
+    required: true
+  working_dir:
+    description: >
+      Directory that files are relative to.
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: ORAS Attach
+      shell: bash
+      env:
+        PARAM_ANNOTATIONS: ${{ inputs.annotations }}
+        PARAM_ARTIFACT_TYPE: ${{ inputs.artifact_type }}
+        PARAM_DIGEST_ENV_VAR: ${{ inputs.digest_env_var }}
+        PARAM_EXTRA_ARGS: ${{ inputs.extra_args }}
+        PARAM_FILES: ${{ inputs.files }}
+        PARAM_PLAIN_HTTP: ${{ inputs.plain_http }}
+        PARAM_SUBJECT: ${{ inputs.subject }}
+        PARAM_WORKING_DIR: ${{ inputs.working_dir }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/attach.sh"
+        "SCRIPT_ORAS_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/oras.sh"

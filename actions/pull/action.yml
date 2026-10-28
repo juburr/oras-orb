@@ -1,0 +1,43 @@
+name: Pull an OCI artifact with ORAS
+description: >
+  Pulls an OCI artifact's files from a registry with oras pull, recreating the
+  paths they were pushed with under output_dir. Log in to the registry first,
+  unless it allows anonymous pulls. The GitHub Actions twin of the orb's pull
+  command.
+author: juburr
+
+inputs:
+  extra_args:
+    description: >
+      More arguments for oras pull, split like shell words, such as
+      --keep-old-files. Nothing in them is run as shell code.
+    default: ""
+  output_dir:
+    description: >
+      Directory to pull the files into. Created if needed. ORAS refuses a file
+      whose path would land outside it.
+    default: "."
+  plain_http:
+    description: >
+      Connect over plain HTTP instead of HTTPS, for a registry without TLS such
+      as a local test registry.
+    default: "false"
+  reference:
+    description: >
+      Artifact to pull: <registry>/<repository>:<tag> or
+      <registry>/<repository>@<digest>, such as ghcr.io/myorg/reports:1.0.0.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: ORAS Pull
+      shell: bash
+      env:
+        PARAM_EXTRA_ARGS: ${{ inputs.extra_args }}
+        PARAM_OUTPUT_DIR: ${{ inputs.output_dir }}
+        PARAM_PLAIN_HTTP: ${{ inputs.plain_http }}
+        PARAM_REFERENCE: ${{ inputs.reference }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/pull.sh"
+        "SCRIPT_ORAS_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/oras.sh"

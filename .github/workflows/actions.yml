@@ -1,0 +1,273 @@
+# Tests the GitHub Actions in actions/ on GitHub's own runners, as
+# .circleci/test-deploy.yml tests the orb's commands on CircleCI. Each job
+# runs the actions from this checkout (uses: ./actions/...), so a pull
+# request tests its own changes.
+name: GitHub Actions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run the offline tests
+        run: |
+          for test in tests/*_test.sh; do
+            echo "=== ${test}"
+            bash "${test}"
+          done
+
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # e_machine field of the ELF header: 3e00 is x86-64, b700 is aarch64.
+          # Quoted, since YAML reads an unquoted 3e00 as the number 3.
+          - runner: ubuntu-24.04
+            elf: "3e00"
+          - runner: ubuntu-24.04-arm
+            elf: "b700"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./actions/install
+      - name: Verify the install
+        env:
+          ELF: ${{ matrix.elf }}
+        run: |
+          version=$(awk '/^  version:/ { found = 1 } found && /default:/ { gsub(/"/, "", $2); print $2; exit }' src/commands/install.yml)
+          [[ "$(command -v oras)" == "${HOME}/bin/oras" ]]
+          od -An -tx1 -j18 -N2 "${HOME}/bin/oras" | tr -d ' \n' | grep -Fx "${ELF}"
+          oras version | tee "${RUNNER_TEMP}/version.log"
+          grep -E "^Version: +${version//./\\.}$" "${RUNNER_TEMP}/version.log"
+      # The first install saved the release to the cache, so this one
+      # restores it. It goes to a directory of its own, which later steps
+      # find first on the PATH.
+      - uses: ./actions/install
+        with:
+          install_path: ${{ runner.temp }}/second
+      - name: Verify the second install comes first on the PATH
+        env:
+          SECOND: ${{ runner.temp }}/second
+        run: |
+          [[ "$(command -v oras)" == "${SECOND}/oras" ]]
+          oras version
+      # A real release candidate the checksum table doesn't list.
+      - name: Install an unlisted version, which must fail
+        id: unlisted
+        continue-on-error: true
+        uses: ./actions/install
+        with:
+          version: 1.3.0-rc.2
+          caching: false
+          install_path: ${{ runner.temp }}/unlisted
+      - name: Verify it failed before installing anything
+        env:
+          OUTCOME: ${{ steps.unlisted.outcome }}
+          UNLISTED: ${{ runner.temp }}/unlisted
+        run: |
+          [[ "${OUTCOME}" == failure ]]
+          [[ ! -e "${UNLISTED}/oras" ]]
+
+  # A fresh runner with the release's download hosts blocked installs from
+  # the cache the install job saved, which only works if the cache is used.
+  install-from-cache:
+    needs: install
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Block the download hosts
+        run: |
+          echo "127.0.0.1 github.com objects.githubusercontent.com release-assets.githubusercontent.com" | sudo tee -a /etc/hosts
+          if curl -sSf --max-time 10 -o /dev/null https://github.com; then
+            echo "github.com is still reachable."
+            exit 1
+          fi
+      - uses: ./actions/install
+      - name: Verify the install
+        run: |
+          [[ "$(command -v oras)" == "${HOME}/bin/oras" ]]
+          oras version
+
+  # test-deploy.yml's registry-test: every action against a local registry:2
+  # that requires a login, over plain HTTP, for the oldest release in the
+  # checksum table and for the install action's default. The pushed files
+  # include a path with a space, and an annotation with a comma.
+  registry:
+    strategy:
+      fail-fast: false
+      matrix:
+        oras_version: ["1.0.0", "default"]
+    runs-on: ubuntu-24.04
+    env:
+      CI_DIR: ${{ github.workspace }}/../oras-ci
+      REGISTRY_HOST: localhost:5000
+      # Placeholder credentials for the throwaway registry. login reads them
+      # from the variables its username and password inputs name.
+      REGISTRY_USER: ci-user
+      REGISTRY_SECRET: ci-password
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start a registry that requires a login
+        run: |
+          # mirror.gcr.io serves the Docker Hub images without Docker Hub's
+          # anonymous pull limits. A pull from it can time out, so pull with
+          # retries before running them.
+          for image in mirror.gcr.io/library/httpd:2 mirror.gcr.io/library/registry:2; do
+            for attempt in 1 2 3; do
+              docker pull "${image}" && break
+              sleep $((attempt * 10))
+            done
+          done
+          mkdir -p "${RUNNER_TEMP}/registry-auth"
+          docker run --rm --entrypoint htpasswd mirror.gcr.io/library/httpd:2 -Bbn "${REGISTRY_USER}" "${REGISTRY_SECRET}" \
+            > "${RUNNER_TEMP}/registry-auth/htpasswd"
+          docker run -d --name registry -p 5000:5000 -v "${RUNNER_TEMP}/registry-auth:/auth" \
+            -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=oras-orb-ci \
+            -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd mirror.gcr.io/library/registry:2
+          # A 401 means the registry is up and refuses anonymous requests.
+          for _ in $(seq 1 30); do
+            if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://${REGISTRY_HOST}/v2/")" == "401" ]]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "The registry did not start."
+          docker logs registry
+          exit 1
+      - if: matrix.oras_version == 'default'
+        uses: ./actions/install
+      - if: matrix.oras_version != 'default'
+        uses: ./actions/install
+        with:
+          version: ${{ matrix.oras_version }}
+      - name: Verify the ORAS version
+        env:
+          EXPECTED_VERSION: ${{ matrix.oras_version }}
+        run: |
+          if [[ "${EXPECTED_VERSION}" == "default" ]]; then
+            EXPECTED_VERSION=$(awk '/^  version:/ { found = 1 } found && /default:/ { gsub(/"/, "", $2); print $2; exit }' src/commands/install.yml)
+          fi
+          oras version | tee "${RUNNER_TEMP}/version.log"
+          grep -E "^Version: +${EXPECTED_VERSION//./\\.}$" "${RUNNER_TEMP}/version.log"
+      - name: Create test files
+        run: |
+          mkdir -p "${CI_DIR}/reports dir"
+          echo "scan passed" > "${CI_DIR}/scan.txt"
+          echo '{"spdxVersion": "SPDX-2.3"}' > "${CI_DIR}/reports dir/sbom.spdx.json"
+          echo "signature" > "${CI_DIR}/signature.txt"
+      - name: Log in with a wrong password, which must fail
+        id: wrong-password
+        continue-on-error: true
+        uses: ./actions/login
+        env:
+          WRONG_SECRET: not-the-password
+        with:
+          registry: localhost:5000
+          username: REGISTRY_USER
+          password: WRONG_SECRET
+          plain_http: true
+      - name: Verify the wrong password was refused
+        env:
+          OUTCOME: ${{ steps.wrong-password.outcome }}
+        run: '[[ "${OUTCOME}" == failure ]]'
+      - uses: ./actions/login
+        with:
+          registry: localhost:5000
+          username: REGISTRY_USER
+          password: REGISTRY_SECRET
+          plain_http: true
+      - uses: ./actions/push
+        with:
+          reference: localhost:5000/oras-orb-ci/reports:ci
+          files: |
+            scan.txt
+            "reports dir/sbom.spdx.json:application/spdx+json"
+          working_dir: ${{ env.CI_DIR }}
+          artifact_type: application/vnd.oras-orb.ci.reports
+          annotations: |
+            org.opencontainers.image.description=CI reports, pushed by oras-orb
+            org.opencontainers.image.revision=${{ github.sha }}
+          plain_http: true
+      - name: Verify the pushed artifact
+        run: |
+          echo "ORAS_PUSHED_DIGEST=${ORAS_PUSHED_DIGEST}"
+          REGISTRY_DIGEST=$(curl -sS --fail -u "${REGISTRY_USER}:${REGISTRY_SECRET}" -o /dev/null -D - \
+            -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+            "http://${REGISTRY_HOST}/v2/oras-orb-ci/reports/manifests/ci" \
+            | awk -F': ' 'tolower($1) == "docker-content-digest" { print $2 }' | tr -d '\r')
+          echo "Registry digest: ${REGISTRY_DIGEST}"
+          [[ -n "${REGISTRY_DIGEST}" && "${REGISTRY_DIGEST}" == "${ORAS_PUSHED_DIGEST}" ]]
+          curl -sS --fail -u "${REGISTRY_USER}:${REGISTRY_SECRET}" \
+            -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+            "http://${REGISTRY_HOST}/v2/oras-orb-ci/reports/manifests/${ORAS_PUSHED_DIGEST}" > "${RUNNER_TEMP}/manifest.json"
+          python3 - "${RUNNER_TEMP}/manifest.json" << 'EOF'
+          import json, os, sys
+          manifest = json.load(open(sys.argv[1]))
+          annotations = manifest["annotations"]
+          layers = {l["annotations"]["org.opencontainers.image.title"]: l["mediaType"] for l in manifest["layers"]}
+          print(json.dumps({"annotations": annotations, "layers": layers}, indent=2))
+          assert annotations["org.opencontainers.image.description"] == "CI reports, pushed by oras-orb"
+          assert annotations["org.opencontainers.image.revision"] == os.environ["GITHUB_SHA"]
+          assert layers["reports dir/sbom.spdx.json"] == "application/spdx+json"
+          assert "scan.txt" in layers
+          EOF
+      - uses: ./actions/pull
+        with:
+          reference: localhost:5000/oras-orb-ci/reports@${{ env.ORAS_PUSHED_DIGEST }}
+          output_dir: ${{ runner.temp }}/pulled files
+          plain_http: true
+      - name: Verify the pulled files
+        env:
+          PULLED: ${{ runner.temp }}/pulled files
+        run: |
+          cmp "${CI_DIR}/scan.txt" "${PULLED}/scan.txt"
+          cmp "${CI_DIR}/reports dir/sbom.spdx.json" "${PULLED}/reports dir/sbom.spdx.json"
+      - uses: ./actions/attach
+        with:
+          subject: localhost:5000/oras-orb-ci/reports@${{ env.ORAS_PUSHED_DIGEST }}
+          artifact_type: application/vnd.oras-orb.ci.signature
+          files: signature.txt
+          working_dir: ${{ env.CI_DIR }}
+          plain_http: true
+          digest_env_var: SIGNATURE_DIGEST
+      - name: Verify the attached artifact
+        run: |
+          echo "SIGNATURE_DIGEST=${SIGNATURE_DIGEST}"
+          oras discover --plain-http "${REGISTRY_HOST}/oras-orb-ci/reports@${ORAS_PUSHED_DIGEST}" | tee "${RUNNER_TEMP}/discover.txt"
+          grep -qF "${SIGNATURE_DIGEST}" "${RUNNER_TEMP}/discover.txt"
+      - uses: ./actions/logout
+        with:
+          registry: localhost:5000
+      - name: Verify the registry refuses oras after logout
+        run: |
+          if oras pull --plain-http --output "${RUNNER_TEMP}/after-logout" "${REGISTRY_HOST}/oras-orb-ci/reports@${ORAS_PUSHED_DIGEST}"; then
+            echo "oras pulled from the registry after logout."
+            exit 1
+          fi
